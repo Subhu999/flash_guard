@@ -23,5 +23,8 @@ def calculate_flood_risk(rainfall,river_level,soil_moisture,slope):
     return {
         "RISK_SCORE": risk_score,
         "RISK_LEVEL": risk_level,
-        "ALERT": alert
+        "ALERT": alert,
+        "FACTORS": {"rainfall": round(rainfall_score, 2), "river_level": round(river_score, 2),
+                    "soil_moisture": round(soil_score, 2), "slope": round(slope_score, 2),
+                    },
     }
