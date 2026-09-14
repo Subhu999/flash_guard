@@ -1,5 +1,7 @@
 import streamlit as st
 from risk_engine import calculate_flood_risk
+from weather_data import get_location_coordinates, get_weather_data
+from terrain_data import calculate_terrain_slope, get_terrain_risk
 
 st.set_page_config(
 page_title="FlashGuard",
@@ -12,99 +14,194 @@ st.subheader("Flash Flood Early Warning System for Hilly Regions")
 
 st.divider()
 
-st.sidebar.header("🌍 Environmental Conditions")
+st.header("📡 Live Environmental Monitoring")
 
-rainfall = st.sidebar.slider(
-"🌧️ Rainfall (mm)",
-min_value=0,
-max_value=300,
-value=100
+location_name = st.text_input(
+"📍 Enter Location",
+placeholder="Example: Manali, India"
 )
 
-river_level = st.sidebar.slider(
-"💧 River Level (m)",
-min_value=0.0,
-max_value=10.0,
-value=3.0,
-step=0.1
-)
+if st.button("📡 Fetch Live Environmental Data"):
 
-soil_moisture = st.sidebar.slider(
-"🌱 Soil Moisture (%)",
-min_value=0,
-max_value=100,
-value=50
-)
+    with st.spinner("Fetching real environmental data..."):
 
-slope = st.sidebar.slider(
-"⛰️ Terrain Slope (degrees)",
-min_value=0,
-max_value=60,
-value=25
-)
+        location = get_location_coordinates(location_name)
 
-result = calculate_flood_risk(
-rainfall=rainfall,
-river_level=river_level,
-soil_moisture=soil_moisture,
-slope=slope
-)
+        if "error" in location:
+            st.error(location["error"])
 
-risk_score = result["RISK_SCORE"]
-risk_level = result["RISK_LEVEL"]
+        else:
+            weather = get_weather_data(
+                location["latitude"],
+                location["longitude"]
+            )
 
-st.header("🚨 Current Flood Risk Assessment")
+            terrain = calculate_terrain_slope(
+                location["latitude"],
+                location["longitude"]
+            )
 
-col1, col2, col3 = st.columns(3)
+            if "error" in terrain:
 
-col1.metric(
-"Flood Risk Score",
-f"{risk_score}%"
-)
+                terrain_risk = None
 
-col2.metric(
-"Risk Level",
-risk_level
-)
+            else:
 
-col3.metric(
-"Status",
-"Monitoring Active"
-)
+                terrain_risk = get_terrain_risk(
+                    terrain["estimated_slope"]
+                )
 
-if risk_level == "LOW":
-    st.success(f"🟢 {result['ALERT']}")
-elif risk_level == "MODERATE":
-    st.warning(f"🟡 {result['ALERT']}")
-elif risk_level == "HIGH":
-    st.warning(f"🟠 {result['ALERT']}")
-else:
-    st.error(f"🔴 {result['ALERT']}")
+            st.session_state["live_data"] = {
+                "location": location,
+                "weather": weather,
+                "terrain": terrain,
+                "terrain_risk": terrain_risk
+            }
 
-st.divider()
-st.header("📊 Environmental Risk Factors")
+            if "error" in weather:
+                st.error(weather["error"])
 
-factor_col1, factor_col2, factor_col3, factor_col4 = st.columns(4)
+            else:
+                st.success(
+                    f"Live data loaded for "
+                    f"{location['name']}, "
+                    f"{location['country']}"
+                )
 
-factor_col1.metric(
-"🌧️ Rainfall Risk",
-f"{result['FACTORS']['rainfall']}%"
-)
+if "live_data" in st.session_state:
 
-factor_col2.metric(
-"💧 River Risk",
-f"{result['FACTORS']['river_level']}%"
-)
+    live_data = st.session_state["live_data"]
 
-factor_col3.metric(
-"🌱 Soil Risk",
-f"{result['FACTORS']['soil_moisture']}%"
-)
+    location = live_data["location"]
+    weather = live_data["weather"]
 
-factor_col4.metric(
-"⛰️ Terrain Risk",
-f"{result['FACTORS']['slope']}%"
-)
+    st.subheader(
+        f"📍 Monitoring: {location['name']}"
+    )
+
+    live_col1, live_col2, live_col3, live_col4 = st.columns(4)
+
+    live_col1.metric(
+        "🌡️ Temperature",
+        f"{weather['temperature']} °C"
+    )
+
+    live_col2.metric(
+        "💧 Humidity",
+        f"{weather['humidity']}%"
+    )
+
+    live_col3.metric(
+        "🌧️ Rainfall (24h)",
+        f"{weather['rainfall_24h']} mm"
+    )
+
+    live_col4.metric(
+        "🌱 Soil Moisture",
+        f"{weather['soil_moisture']}%"
+    )
+
+    st.divider()
+
+    st.subheader("⛰️ Real Terrain Analysis")
+
+    terrain = live_data.get("terrain")
+    terrain_risk = live_data.get("terrain_risk")
+
+    if terrain and "error" not in terrain:
+
+        terrain_col1, terrain_col2, terrain_col3 = st.columns(3)
+
+        terrain_col1.metric(
+            "⛰️ Elevation",
+            f"{terrain['center_elevation']} m"
+        )
+
+        terrain_col2.metric(
+            "📐 Estimated Slope",
+            f"{terrain['estimated_slope']}°"
+        )
+
+        terrain_col3.metric(
+            "⚠️ Terrain Risk",
+            terrain_risk["terrain_level"]
+        )
+
+        st.caption(
+            "Slope estimated from real elevation differences "
+            "around the selected location."
+        )
+
+    else:
+
+        st.error(
+            "⛰️ Terrain data could not be retrieved."
+        )
+
+        if terrain and "error" in terrain:
+            st.code(terrain["error"])
+
+if "live_data" in st.session_state:
+
+    weather = st.session_state["live_data"]["weather"]
+    location = st.session_state["live_data"]["location"]
+
+    st.divider()
+
+    if st.button("🤖 Analyze Live Flood Risk"):
+        terrain = st.session_state["live_data"].get("terrain")
+
+        if terrain:
+
+            terrain_slope = terrain["estimated_slope"]
+
+        else:
+
+            st.warning(
+                "Real terrain slope unavailable. "
+                "Flood risk analysis requires terrain data."
+            )
+
+            terrain_slope = 0
+
+        live_result = calculate_flood_risk(
+            rainfall=weather["rainfall_24h"],
+            river_level=3.0,
+            soil_moisture=weather["soil_moisture"],
+            slope=terrain_slope
+        )
+
+        st.header("🚨 Live Flash Flood Risk Assessment")
+
+        risk_col1, risk_col2, risk_col3 = st.columns(3)
+
+        risk_col1.metric(
+            "Risk Score",
+            f"{live_result["RISK_SCORE"]}%"
+        )
+
+        risk_col2.metric(
+            "Risk Level",
+            live_result["RISK_LEVEL"]
+        )
+
+        risk_col3.metric(
+            "Monitoring Location",
+            location["name"]
+        )
+
+        if live_result["RISK_LEVEL"] == "LOW":
+            st.success(live_result["ALERT"])
+
+        elif live_result["RISK_LEVEL"] == "MODERATE":
+            st.warning(live_result["ALERT"])
+
+        elif live_result["RISK_LEVEL"] == "HIGH":
+            st.warning(live_result["ALERT"])
+
+        else:
+            st.error(live_result["ALERT"])
+
 
 st.divider()
 
@@ -113,5 +210,3 @@ st.info(
 "soil moisture, and terrain slope to estimate "
 "flash flood risk."
 )
-
-st.caption("Prototype Version 1.0 | Multi-Source Risk Assessment System")
